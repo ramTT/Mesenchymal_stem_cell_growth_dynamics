@@ -1,0 +1,75 @@
+---
+title: "MSC_growth_dynamics"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r echo=F, warning=F, error=F, message=F}
+#0.INSTALLING AND CALLING PACKAGES
+# install.packages("data.table")
+# install.packages("cowplot")
+# install.packages("RColorBrewer")
+
+library(data.table)
+library(cowplot)
+library(RColorBrewer)
+library(knitr)
+
+rm(list=ls())
+```
+
+```{r echo=F, warning=F, error=F, message=F}
+#Importing data
+DT <- fread("MSC_population_doubling_time_v2.csv")
+#Changing column names and adjusting data to proper numeric format
+names(DT) <- c("Day", "Well_1", "Well_2")
+DT[,c(2,3)] <- DT[, lapply(.SD,function(column){round(as.numeric(gsub(",",".", column)),2)}),.SDcols = c("Well_1", "Well_2")]
+#Melting data prior to plotting
+DT <- melt(DT, id.vars ="Day", variable.name = "Well", value.name = "cells_per_cm2")
+```
+
+```{r echo=F, warning=F, error=F, message=F}
+#1. Fit a logisitc growth curve to the data
+pop.ss <- nls(cells_per_cm2 ~ SSlogis(Day, phi1, phi2, phi3), data = DT)
+alpha=coef(pop.ss)
+DT[,fitted.log.model:=alpha[1]/(1 + exp(-(DT[,Day] - alpha[2])/alpha[3]))]
+
+#2. Find the population doubling time
+DT <- DT[,PDT:=Day*log(2)*log(cells_per_cm2/100)]
+```
+
+```{r echo=F, warning=F, error=F, message=F}
+#Growth dynamics plot
+msc_growth_dynamic_plot <- ggplot(DT, aes(x=Day, y=cells_per_cm2))+
+  geom_point(aes(shape=Well, color=Well),size=4, alpha=0.9)+
+  geom_line(aes(x=Day, y=fitted.log.model), size=1, linetype=2)+
+  
+  scale_x_discrete(limits=DT[,Day])+
+  scale_y_continuous(breaks = seq(0,100000,10000))+
+  scale_color_manual(values=brewer.pal(11, "RdBu")[c(1,11)], labels=c("Well1", "Well2"))+
+  scale_shape_manual(values=c(15,17), labels=c("Well1", "Well2"))+
+  
+  xlab("Days (post plating)")+
+  ylab("IDmBMSC / Cm2")+
+  theme(legend.position = "bottom", legend.title = element_blank(), legend.justification = "center", axis.title = element_text(size=17, face="bold"))+
+  
+  annotate("text", x=3, y=60000, label=paste("Logistic growth model:\n\n","IDmBMSC/Cm2~\n", toString(round(alpha[1])), "/[1+exp(-(",toString(round(alpha[2],2)),"+",toString(round(alpha[3],2)),"*Day","))]"), fontface=4, size=4)
+
+#Population doubling time plot: table
+PDT_table <- transpose(DT[,mean(PDT,na.rm=T), by=Day])
+PDT_table <- rbind(round(PDT_table[1]), round(PDT_table[2],1))
+names(PDT_table) <- NULL
+```
+
+```{r echo=F, warning=F, error=F, message=F}
+############################################################# OUTPUT #####################################################
+```
+
+```{r echo=F, warning=F, error=F, message=F}
+#ggsave("msc_growth_dynamic_plot.jpg",msc_growth_dynamic_plot, width=7, height=5, dpi=1000)
+#browseURL("msc_growth_dynamic_plot.jpg")
+fwrite(PDT_table,"PDT_table.csv", sep=";")
+```
